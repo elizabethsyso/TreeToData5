@@ -22,8 +22,7 @@ class LineSegmentDetection(object):
 
                 lines.append(line.split(' ')[:4])
 
-        _data = filter(None, lines)
-        return _data
+        return filter(None, lines)
 
     @classmethod
     def as_pairs(cls, points=None):
