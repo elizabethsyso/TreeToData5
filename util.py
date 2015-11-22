@@ -10,8 +10,9 @@ class LineSegmentDetection(object):
     OUTPUT_DEFAULT = 'tree.txt'
     PGM_PLACEHOLDER = 'tree.pgm'
     LINE_POINTS = ('x1', 'y1', 'x2', 'y2')
-    THRESHOLD = 6
+    THRESHOLD = 15
     DISTANCE_THRESHOLD = 40
+    CLUSTER_SIZE_THRESHOLD = 3
     _data = None
 
     def __init__(self, input_file=None, output_file=None):
@@ -105,6 +106,50 @@ class LineSegmentDetection(object):
 
         return False
 
+    @property
+    def all_points(self):
+        points = []
+        for line in self.as_lines():
+            distance = self.distance(*self.parse_line(line))
+            if distance < self.DISTANCE_THRESHOLD:
+                continue
+
+            points.extend(list(self.parse_points(line)))
+        return points
+
+    def contains(self, cluster, point):
+        for cluster_point in cluster:
+            if self.is_in_vicinity(point, cluster_point):
+                return True
+        return False
+
+    def find_all_clusters(self):
+        all_points = self.all_points
+        first_point = all_points[0]
+        clusters = [
+            [first_point]
+        ]
+        for point in self.all_points[1:]:
+            belongs_in_existing_cluster = False
+            for cluster in clusters[:]:
+                belongs_to_cluster = self.contains(cluster, point)
+                if belongs_to_cluster:
+                    belongs_in_existing_cluster = True
+                    cluster.append(point)
+                    break
+            if not belongs_in_existing_cluster:
+                clusters.append(
+                    [point]
+                )
+
+        return clusters
+
+    def major_clusters(self):
+        big_clusters = [cluster for cluster in self.find_all_clusters()
+                        if len(cluster) >= self.CLUSTER_SIZE_THRESHOLD]
+
+        return big_clusters
+
     def graph(self):
         fig = plt.figure()
 
@@ -158,6 +203,11 @@ class LineSegmentDetection(object):
         print (total_x, total_y)
         ax.set_xlim(min(total_x), max(total_x) + 200)
         ax.set_ylim(min(total_y), max(total_y))
+
+        for cluster in self.major_clusters():
+            first_point = cluster[0]
+            circ = plt.Circle(first_point, radius=10, color='g', fill=True)
+            ax.add_patch(circ)
 
         plt.show()
 
