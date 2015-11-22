@@ -1,10 +1,15 @@
 from subprocess import call
-# import matplotlib
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.lines as mlines
+from decimal import Decimal
+
 
 class LineSegmentDetection(object):
     OUTPUT_DEFAULT = 'tree.txt'
     PGM_PLACEHOLDER = 'tree.pgm'
     LINE_POINTS = ('x1', 'y1', 'x2', 'y2')
+    THRESHOLD = 4
     _data = None
 
     def __init__(self, input_file=None, output_file=None):
@@ -49,5 +54,83 @@ class LineSegmentDetection(object):
             call(step, shell=True)
 
         return True
+
+    @staticmethod
+    def distance(xdata, ydata):
+        return (abs(xdata[0] - xdata[1])**2 + abs(ydata[0] - ydata[1])**2)**float(0.5)
+
+    @staticmethod
+    def slope(xdata, ydata):
+        longslope = (ydata[1] - ydata[0]) / (xdata[0] - xdata[1])
+        return round(longslope, 2)
+
+    def graph(self):
+        fig = plt.figure()
+
+        ax = fig.add_subplot(111)
+
+        total_x = []
+        total_y = []
+        seen_lines = []
+        seen_points = []
+
+        for line in self.as_lines():
+            x_data = [float(line['x1']), float(line['x2'])]
+            y_data = [float(line['y1']), float(line['y2'])]
+
+            distance = self.distance(x_data, y_data)
+            if not distance > 20:
+                continue
+
+            point1 = float(line['x1']), float(line['y1'])
+            point2 = float(line['x2']), float(line['y2'])
+
+            seen_combination = 0
+            for point in (point1, point2):
+                for seen_point in seen_points:
+                    if (seen_point[0] - 4 < point[0] < seen_point[0] + 4 and
+                        seen_point[1] - 4 < point[1] < seen_point[1] + 4):
+                        seen_combination += 1
+                        break
+
+            if seen_combination == 2:
+                continue
+
+            seen_points.extend([point1, point2])
+
+            slope = self.slope(x_data, y_data)
+            rounded_distance = round(distance)
+            potential_line = (rounded_distance, slope)
+
+
+
+            # print '*'*10
+            # print 'line:', line
+            # print 'testing against:', potential_line
+            # print have_seen_distance
+            # print have_seen_slope
+            # print seen_lines
+
+            # if dontadd:
+            #     continue
+
+            # seen_lines.append(potential_line)
+
+            total_x.extend(x_data)
+            total_y.extend(y_data)
+            trace = mlines.Line2D(xdata=x_data, ydata=y_data)
+            ax.add_line(trace)
+
+        print total_x, total_y
+        print seen_lines
+        ax.set_xlim(min(total_x), max(total_x) + 200)
+        ax.set_ylim(min(total_y), max(total_y))
+
+        plt.show()
+
+
+
+
+
 
 
