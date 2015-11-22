@@ -10,27 +10,50 @@ class LineSegmentDetection(object):
     OUTPUT_DEFAULT = 'tree.txt'
     PGM_PLACEHOLDER = 'tree.pgm'
     LINE_POINTS = ('x1', 'y1', 'x2', 'y2')
-    THRESHOLD = 15
-    DISTANCE_THRESHOLD = 40
+    THRESHOLD = 25
+    DISTANCE_THRESHOLD = 51
     CLUSTER_SIZE_THRESHOLD = 3
+    RESOLUTION = 35
     _data = None
+    resolution_values = [value for value in range(0, 5000, RESOLUTION)]
+
 
     def __init__(self, input_file=None, output_file=None):
         self.input_file = input_file
         self.output_file = None if output_file else self.OUTPUT_DEFAULT
         self.convert()
+        self.seenx = []
+        self.seeny = []
         self.output_data = self.populate_output()
         self.nodes = []
         self.leaves = []
 
     def populate_output(self):
-        lines = []
+        lines = set()
+        seen_x = set()
+        seen_y = set()
         with open(self.output_file, 'r') as file_:
             for line in file_.read().splitlines():
                 if not line:
                     continue
 
-                lines.append(line.split(' ')[:4])
+                values = map(float, line.split(' ')[:4])
+                for operation in (float, round, int):
+                    values = map(operation, values)
+
+                if not self.valid_distance((values[:2], values[2:])):
+                    continue
+
+                x, y = values[:3:2], values[1::2]
+
+                for dim, seen_dim in zip((x, y), (seen_x, seen_y)):
+                    for i, elem in enumerate(dim):
+                        dim[i] = self.fuzzy_match(elem, seen_dim)
+
+                seen_x.update(x)
+                seen_y.update(y)
+                p1, p2 = (x[0], y[0]), (x[1], y[1])
+                lines.add((tuple(p1), tuple(p2)))
 
         return filter(None, lines)
 
@@ -43,17 +66,12 @@ class LineSegmentDetection(object):
         return [dict(**{a: b for a, b in zip(self.LINE_POINTS, line)})
                 for line in self.output_data]
 
-    @classmethod
-    def parse_line(cls, line):
-        x_data = [float(line['x1']), float(line['x2'])]
-        y_data = [float(line['y1']), float(line['y2'])]
-        return x_data, y_data
+
 
     @classmethod
-    def parse_points(cls, line):
-        point1 = float(line['x1']), float(line['y1'])
-        point2 = float(line['x2']), float(line['y2'])
-        return point1, point2
+    def parse_line(cls, line):
+        return (line[0][0], line[1][0]), \
+               (line[0][1], line[1][1])
 
     @property
     def convert_to_pnm_command(self):
@@ -72,18 +90,29 @@ class LineSegmentDetection(object):
 
         return True
 
+    @classmethod
+    def valid_distance(cls, line):
+        distance = cls.distance(*cls.parse_line(line))
+        return distance >= cls.DISTANCE_THRESHOLD
+
     @staticmethod
     def distance(xdata, ydata):
         return (abs(xdata[0] - xdata[1])**2 + abs(ydata[0] - ydata[1])**2)**float(0.5)
 
     @staticmethod
     def slope(xdata, ydata):
+        if (xdata[0] - xdata[1]) == 0:
+            return 0
         longslope = (ydata[1] - ydata[0]) / (xdata[0] - xdata[1])
         return round(longslope, 2)
 
-    @staticmethod
-    def regression(line, point):
-        pass
+
+    @classmethod
+    def fuzzy_match(cls, num, arr):
+        for seen in arr:
+            if seen - cls.THRESHOLD < num < seen + cls.THRESHOLD:
+                return seen
+        return num
 
     @classmethod
     def is_in_vicinity(cls, point_of_interest, reference_point):
@@ -111,12 +140,10 @@ class LineSegmentDetection(object):
     @property
     def all_points(self):
         points = []
-        for line in self.as_lines():
-            distance = self.distance(*self.parse_line(line))
-            if distance < self.DISTANCE_THRESHOLD:
-                continue
-
-            points.extend(list(self.parse_points(line)))
+        for i in range(2):
+            points.extend(
+                [line[i] for line in self.output_data]
+            )
         return points
 
     def contains(self, cluster, point):
@@ -164,6 +191,28 @@ class LineSegmentDetection(object):
         self.leaves = leaves
         return nodes, leaves
 
+    def simplify_clusters(self):
+        simple_clusters = {}
+        for cluster in self.find_all_clusters():
+            point = cluster[0]
+            simple_clusters[point] = cluster
+
+        return simple_clusters
+
+    def find_cluster_points(self):
+        if not len(self.nodes):
+            self.define_nodes_and_leaves()
+
+        left_most_node = min(self.nodes, key=lambda node: node[0][0])
+        connection_line = None
+        for line in self.as_lines():
+            point1, point2 = line
+            if point1[0] == left_most_node[0]:
+                connection_line = line
+                break
+
+        print connection_line
+
     def graph(self):
         fig = plt.figure()
 
@@ -171,50 +220,15 @@ class LineSegmentDetection(object):
 
         total_x = []
         total_y = []
-        seen_distances = []
-        seen_points = []
-        seen_slopes = []
 
-        for line in self.as_lines():
+        # for line in self.as_lines():
+        for line in self.output_data:
             x_data, y_data = self.parse_line(line)
-            point1, point2 = self.parse_points(line)
-
-            duplication_score = 0
-
-            # establish length of line and throw out short ones
-            distance = self.distance(x_data, y_data)
-            if not distance > self.DISTANCE_THRESHOLD:
-                continue
-
-            if round(distance, 2) in seen_distances:
-                duplication_score += 1
-
-            # figure out if slope is the same
-            slope = self.slope(x_data, y_data)
-            if slope in seen_slopes:
-                duplication_score += 1
-
-            # figure out if points are within proximity of seen_points
-            for point in (point1, point2):
-                for seen_point in seen_points:
-                    if self.is_in_vicinity(point_of_interest=point,
-                                           reference_point=seen_point):
-                        duplication_score += 1
-                        break
-
-            if duplication_score >= 3:
-                continue
-
-            seen_points.extend([point1, point2])
-            seen_slopes.append(slope)
-            seen_distances.append(distance)
-
             total_x.extend(x_data)
             total_y.extend(y_data)
             trace = mlines.Line2D(xdata=x_data, ydata=y_data)
             ax.add_line(trace)
 
-        print (total_x, total_y)
         ax.set_xlim(min(total_x) - 40, max(total_x) + 200)
         ax.set_ylim(min(total_y) - 40, max(total_y) + 200)
 
@@ -229,7 +243,10 @@ class LineSegmentDetection(object):
             circ = plt.Circle(first_point, radius=10, color='r', fill=True)
             ax.add_patch(circ)
 
+
+        print list(sorted(self.output_data, key=lambda x: x[0][0]))
         plt.show()
+
 
 
 
