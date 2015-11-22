@@ -20,6 +20,8 @@ class LineSegmentDetection(object):
         self.output_file = None if output_file else self.OUTPUT_DEFAULT
         self.convert()
         self.output_data = self.populate_output()
+        self.nodes = []
+        self.leaves = []
 
     def populate_output(self):
         lines = []
@@ -150,6 +152,18 @@ class LineSegmentDetection(object):
 
         return big_clusters
 
+    def define_nodes_and_leaves(self):
+        nodes = []
+        leaves = []
+        for cluster in self.find_all_clusters():
+            if len(cluster) >= self.CLUSTER_SIZE_THRESHOLD:
+                nodes.append(cluster)
+            else:
+                leaves.append(cluster)
+        self.nodes = nodes
+        self.leaves = leaves
+        return nodes, leaves
+
     def graph(self):
         fig = plt.figure()
 
@@ -201,15 +215,24 @@ class LineSegmentDetection(object):
             ax.add_line(trace)
 
         print (total_x, total_y)
-        ax.set_xlim(min(total_x), max(total_x) + 200)
-        ax.set_ylim(min(total_y), max(total_y))
+        ax.set_xlim(min(total_x) - 40, max(total_x) + 200)
+        ax.set_ylim(min(total_y) - 40, max(total_y) + 200)
 
-        for cluster in self.major_clusters():
+        self.define_nodes_and_leaves()
+        for cluster in self.nodes:
             first_point = cluster[0]
             circ = plt.Circle(first_point, radius=10, color='g', fill=True)
             ax.add_patch(circ)
 
+        for cluster in self.leaves:
+            first_point = cluster[0]
+            circ = plt.Circle(first_point, radius=10, color='r', fill=True)
+            ax.add_patch(circ)
+
         plt.show()
+
+
+
 
 
 
